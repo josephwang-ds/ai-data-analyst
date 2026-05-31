@@ -209,8 +209,7 @@ def answer_question(client: OpenAI, df: pd.DataFrame, question: str) -> dict:
         '{\n'
         '  "answer": "detailed answer with specific numbers",\n'
         '  "chart_suggestion": {"type": "bar|line|scatter|histogram|box", "x": "<col>", "y": "<col>", "color": "<col or null>", "title": "<title>"} or null,\n'
-        '  "business_recommendation": "2-3 sentence actionable recommendation",\n'
-        '  "follow_up_questions": ["follow-up 1", "follow-up 2"]\n'
+        '  "business_recommendation": "2-3 sentence actionable recommendation"\n'
         '}\n'
         "Return JSON only."
     )
@@ -475,14 +474,6 @@ if df is not None:
     # ── 4. Multi-turn Q&A ─────────────────────────────────────────────────────
     st.markdown('<span class="section-tag">Step 4 — Ask Anything</span>', unsafe_allow_html=True)
 
-    # Chat history display
-    if st.session_state.get("chat_history"):
-        for turn in st.session_state["chat_history"]:
-            st.markdown(f'<div class="chat-q">🧑 {turn["question"]}</div>', unsafe_allow_html=True)
-            st.markdown(f'<div class="chat-a">🤖 {turn["answer"][:300]}{"…" if len(turn["answer"]) > 300 else ""}</div>', unsafe_allow_html=True)
-            if turn.get("chart_spec"):
-                render_chart(df, turn["chart_spec"], height=300)
-
     # Quick picks — use staging key to avoid post-widget injection error
     st.markdown("**Quick picks:**")
     q_cols = st.columns(len(SAMPLE_QUESTIONS))
@@ -530,7 +521,6 @@ if df is not None:
                 st.session_state["last_result"] = result
                 st.session_state["_q_inject"] = ""
                 st.rerun()
-                st.rerun()
             except Exception as e:
                 st.error(f"Failed: {e}")
 
@@ -560,32 +550,60 @@ if df is not None:
 
         render_chart(df, res.get("chart_suggestion"))
 
-        # Follow-up suggestions
-        follow_ups = res.get("follow_up_questions", [])
-        if follow_ups:
-            st.markdown("**Suggested follow-ups:**")
-            fu_cols = st.columns(len(follow_ups))
-            for i, fu in enumerate(follow_ups):
-                with fu_cols[i]:
-                    if st.button(f"↳ {fu}", key=f"fu_{i}", use_container_width=True):
-                        st.session_state["_q_inject"] = fu
-                        st.session_state.pop("last_result", None)
-                        st.rerun()
+    # ── Session Summary ────────────────────────────────────────────────────────
+    history = st.session_state.get("chat_history", [])
+    if len(history) >= 1:
+        st.divider()
+        col_sum, col_exp = st.columns([1, 1])
+        with col_sum:
+            if st.button("📋 Generate Session Summary", use_container_width=True):
+                with st.spinner("Synthesizing analysis…"):
+                    client = get_client()
+                    qa_log = "\n\n".join(
+                        f"Q: {t['question']}\nA: {t['answer']}"
+                        + (f"\nRecommendation: {t['recommendation']}" if t.get("recommendation") else "")
+                        for t in history
+                    )
+                    system = (
+                        "You are a senior business analyst. Given a Q&A session over a dataset, "
+                        "write a concise executive summary (3-5 paragraphs) covering: "
+                        "key findings, patterns identified, risks or underperformers flagged, "
+                        "and 3 prioritized action items. Be specific with numbers. Professional tone."
+                    )
+                    messages = [{"role": "user", "content": f"Dataset schema:\n{summarize_df(df)}\n\nQ&A Session:\n{qa_log}\n\nWrite the executive summary."}]
+                    summary = ask_llm(client, system, messages, max_tokens=800)
+                    st.session_state["session_summary"] = summary
 
-        # Export summary
-        if st.session_state.get("chat_history"):
-            st.divider()
-            lines = [f"# Data Analysis Summary", f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M')}\n"]
-            for idx, t in enumerate(st.session_state["chat_history"], 1):
-                lines.append(f"## Q{idx}: {t['question']}")
-                lines.append(f"{t['answer']}\n")
-                if t.get("recommendation"):
-                    lines.append(f"**Recommendation:** {t['recommendation']}\n")
-            st.download_button(
-                "⬇ Export summary",
-                "\n".join(lines),
-                file_name=f"analysis_{datetime.now().strftime('%Y%m%d')}.md",
-                mime="text/markdown",
+        with col_exp:
+            if st.session_state.get("session_summary") and history:
+                lines = [
+                    "# Data Analysis — Executive Summary",
+                    f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M')}\n",
+                    "## Executive Summary\n",
+                    st.session_state["session_summary"],
+                    "\n---\n## Full Q&A Log\n",
+                ]
+                for idx, t in enumerate(history, 1):
+                    lines.append(f"### Q{idx}: {t['question']}")
+                    lines.append(f"{t['answer']}\n")
+                    if t.get("recommendation"):
+                        lines.append(f"**Recommendation:** {t['recommendation']}\n")
+                st.download_button(
+                    "⬇ Export Report",
+                    "\n".join(lines),
+                    file_name=f"analysis_{datetime.now().strftime('%Y%m%d')}.md",
+                    mime="text/markdown",
+                    use_container_width=True,
+                )
+
+        if st.session_state.get("session_summary"):
+            st.markdown(
+                f"<div style='background:#1a1f2e;border:1px solid #334155;border-radius:10px;"
+                f"padding:1.2rem 1.5rem;color:#e2e8f0;line-height:1.8;margin-top:1rem'>"
+                f"<div style='font-size:0.75rem;font-weight:600;letter-spacing:0.08em;color:#94a3b8;"
+                f"text-transform:uppercase;margin-bottom:0.8rem'>Executive Summary</div>"
+                f"{st.session_state['session_summary'].replace(chr(10), '<br>')}</div>",
+                unsafe_allow_html=True,
             )
 
 else:
