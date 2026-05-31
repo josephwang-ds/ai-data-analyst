@@ -2,8 +2,6 @@
 
 A Streamlit app that turns any CSV into insights, charts, and recommendations using natural language — no SQL or code required.
 
-**[Live demo →](https://josephjwang.com/analyst)**
-
 ## Overview
 
 Upload a CSV, describe what you want to know, and get back data profiling, visualizations, and plain-English business recommendations — all in one step.
@@ -41,8 +39,8 @@ API key can also be entered directly in the sidebar.
 
 ## Related
 
-- [ChatBI](../chatbi) — natural language → SQL → result table
-- [A/B Test Analyzer](../ab-test-analyzer) — experiment data → significance test → verdict
+- [ChatBI](https://github.com/josephwang-ds/chatbi) — natural language → SQL → result table
+- [A/B Test Analyzer](https://github.com/josephwang-ds/ab-test-analyzer) — experiment data → significance test → verdict
 
 ---
 
