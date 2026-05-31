@@ -483,14 +483,19 @@ if df is not None:
             if turn.get("chart_spec"):
                 render_chart(df, turn["chart_spec"], height=300)
 
-    # Quick picks — inject into session_state key directly
+    # Quick picks — use staging key to avoid post-widget injection error
     st.markdown("**Quick picks:**")
     q_cols = st.columns(len(SAMPLE_QUESTIONS))
     for i, q in enumerate(SAMPLE_QUESTIONS):
         with q_cols[i]:
             if st.button(q, key=f"sq_{i}", use_container_width=True):
-                st.session_state["question_input"] = q
+                st.session_state["_q_inject"] = q
                 st.session_state.pop("last_result", None)
+                st.rerun()
+
+    # Transfer staging key before widget instantiation
+    if "_q_inject" in st.session_state:
+        st.session_state["question_input"] = st.session_state.pop("_q_inject")
 
     question = st.text_input(
         "Ask a business question",
@@ -523,7 +528,8 @@ if df is not None:
                     "follow_ups": result.get("follow_up_questions", []),
                 })
                 st.session_state["last_result"] = result
-                st.session_state["question_input"] = ""
+                st.session_state["_q_inject"] = ""
+                st.rerun()
                 st.rerun()
             except Exception as e:
                 st.error(f"Failed: {e}")
@@ -562,7 +568,7 @@ if df is not None:
             for i, fu in enumerate(follow_ups):
                 with fu_cols[i]:
                     if st.button(f"↳ {fu}", key=f"fu_{i}", use_container_width=True):
-                        st.session_state["question_input"] = fu
+                        st.session_state["_q_inject"] = fu
                         st.session_state.pop("last_result", None)
                         st.rerun()
 
