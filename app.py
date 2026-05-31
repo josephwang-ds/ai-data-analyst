@@ -96,22 +96,18 @@ CHART_THEME = {
 # ── LLM helpers ────────────────────────────────────────────────────────────────
 
 def get_client() -> OpenAI:
-    provider = st.session_state.get("provider", "DeepSeek")
-    api_key = st.session_state.get("api_key") or os.getenv("OPENAI_API_KEY", "")
+    api_key = os.getenv("OPENAI_API_KEY", "")
     if not api_key:
-        st.error("⚠️ Add your API key in the sidebar to continue.")
+        st.error("⚠️ API key not configured. Please contact the demo owner.")
         st.stop()
-    if provider == "DeepSeek":
-        return OpenAI(api_key=api_key, base_url="https://api.deepseek.com")
-    else:
-        return OpenAI(api_key=api_key, base_url="https://generativelanguage.googleapis.com/v1beta/openai/")
+    return OpenAI(api_key=api_key, base_url="https://api.deepseek.com")
 
 def get_model() -> str:
-    return "deepseek-chat" if st.session_state.get("provider", "DeepSeek") == "DeepSeek" else "gemini-2.0-flash"
+    return "deepseek-chat"
 
 def ask_llm(client: OpenAI, system: str, messages: list[dict], max_tokens: int = 1200) -> str:
     resp = client.chat.completions.create(
-        model=get_model(),
+        model="deepseek-chat",
         messages=[{"role": "system", "content": system}] + messages,
         temperature=0.3,
         max_tokens=max_tokens,
@@ -307,33 +303,48 @@ st.markdown('<p class="hero-sub">Upload any CSV → instant KPI dashboard → mu
 
 # Sidebar
 with st.sidebar:
-    st.markdown("### ⚙️ Settings")
-    provider = st.radio("Model", ["DeepSeek", "Gemini Flash"], horizontal=True)
-    st.session_state["provider"] = provider
-    placeholder = "AIza..." if provider == "Gemini Flash" else "sk-..."
-    label = "Google AI Studio Key" if provider == "Gemini Flash" else "DeepSeek API Key"
-    api_key_input = st.text_input(label, type="password", placeholder=placeholder)
-    if api_key_input:
-        st.session_state["api_key"] = api_key_input
+    st.markdown("### 📊 AI Data Analyst")
+    st.caption("Powered by DeepSeek · No sign-up required")
+
+    st.divider()
+    st.markdown("**How it works**")
+    st.markdown(
+        "1. Upload any CSV — or try the sample\n"
+        "2. Auto KPI dashboard renders instantly\n"
+        "3. Click **Run AI Analysis** for insights\n"
+        "4. Ask follow-up questions in plain English"
+    )
+
+    st.divider()
+    st.markdown("**📂 CSV format**")
+    st.caption("Any CSV works — the AI auto-detects columns. Download the sample to see an example.")
+    st.download_button(
+        "⬇ Download sample CSV",
+        data=SAMPLE_CSV,
+        file_name="sample_ecommerce.csv",
+        mime="text/csv",
+        use_container_width=True,
+    )
 
     st.divider()
 
-    # Chat history in sidebar
+    # Chat history
     if st.session_state.get("chat_history"):
-        st.markdown("### 💬 Conversation")
+        st.markdown("### 💬 History")
         for i, turn in enumerate(st.session_state["chat_history"]):
-            with st.expander(f"Q{i+1}: {turn['question'][:40]}…", expanded=False):
-                st.caption(turn["answer"][:200] + "…" if len(turn["answer"]) > 200 else turn["answer"])
+            with st.expander(f"Q{i+1}: {turn['question'][:35]}…", expanded=False):
+                st.caption(turn["answer"][:180] + "…" if len(turn["answer"]) > 180 else turn["answer"])
         if st.button("🗑 Clear history", use_container_width=True):
             st.session_state["chat_history"] = []
             st.rerun()
+        st.divider()
 
-    st.divider()
-    st.markdown("**Stack:** Streamlit · Pandas · Plotly · DeepSeek / Gemini")
+    st.markdown("**Stack:** Streamlit · Pandas · Plotly · DeepSeek")
     st.markdown("**[GitHub](https://github.com/josephwang-ds/ai-data-analyst)** · **[josephjwang.com](https://josephjwang.com)**")
 
 # ── 1. Data loading ────────────────────────────────────────────────────────────
 st.markdown('<span class="section-tag">Step 1 — Load Data</span>', unsafe_allow_html=True)
+st.caption("Upload any CSV — the AI auto-detects column types. Need a starting point? Download the sample CSV from the sidebar.")
 
 col1, col2 = st.columns([3, 1])
 with col1:
@@ -472,35 +483,36 @@ if df is not None:
             if turn.get("chart_spec"):
                 render_chart(df, turn["chart_spec"], height=300)
 
-    # Quick picks
+    # Quick picks — inject into session_state key directly
     st.markdown("**Quick picks:**")
     q_cols = st.columns(len(SAMPLE_QUESTIONS))
     for i, q in enumerate(SAMPLE_QUESTIONS):
         with q_cols[i]:
             if st.button(q, key=f"sq_{i}", use_container_width=True):
-                st.session_state["current_question"] = q
+                st.session_state["question_input"] = q
+                st.session_state.pop("last_result", None)
 
     question = st.text_input(
         "Ask a business question",
-        value=st.session_state.get("current_question", ""),
         placeholder="e.g. Which product should we double down on next quarter?",
         key="question_input",
         label_visibility="collapsed",
     )
-    if question != st.session_state.get("current_question", ""):
-        st.session_state["current_question"] = question
 
-    col_btn1, col_btn2 = st.columns([1, 5])
+    col_btn1, col_btn2, col_btn3 = st.columns([1, 1, 6])
     with col_btn1:
         analyse = st.button("💬 Ask", type="primary", disabled=not question, use_container_width=True)
+    with col_btn2:
+        if st.button("🗑 Clear", use_container_width=True):
+            st.session_state["chat_history"] = []
+            st.session_state.pop("last_result", None)
+            st.rerun()
 
     if analyse and question:
         with st.spinner("Thinking…"):
             client = get_client()
             try:
                 result = answer_question(client, df, question)
-
-                # Add to history
                 if "chat_history" not in st.session_state:
                     st.session_state["chat_history"] = []
                 st.session_state["chat_history"].append({
@@ -511,7 +523,7 @@ if df is not None:
                     "follow_ups": result.get("follow_up_questions", []),
                 })
                 st.session_state["last_result"] = result
-                st.session_state["current_question"] = ""
+                st.session_state["question_input"] = ""
                 st.rerun()
             except Exception as e:
                 st.error(f"Failed: {e}")
@@ -521,13 +533,24 @@ if df is not None:
         res = st.session_state["last_result"]
         st.divider()
 
-        col_ans, col_rec = st.columns([3, 2])
-        with col_ans:
-            st.markdown("**💬 Answer**")
-            st.write(res.get("answer", ""))
-        with col_rec:
-            st.markdown("**🎯 Recommendation**")
-            st.info(res.get("business_recommendation", ""))
+        # Answer card
+        st.markdown("**💬 Answer**")
+        st.markdown(
+            f"<div style='background:#1e293b;border-left:3px solid #6366f1;border-radius:0 8px 8px 0;"
+            f"padding:1rem 1.2rem;color:#e2e8f0;line-height:1.7;margin-bottom:0.8rem'>"
+            f"{res.get('answer','')}</div>",
+            unsafe_allow_html=True,
+        )
+
+        # Recommendation card
+        rec = res.get("business_recommendation", "")
+        if rec:
+            st.markdown(
+                f"<div style='background:#0c2a1f;border-left:3px solid #34d399;border-radius:0 8px 8px 0;"
+                f"padding:0.8rem 1.2rem;color:#86efac;font-size:0.9rem;margin-bottom:1rem'>"
+                f"🎯 <b>Recommendation:</b> {rec}</div>",
+                unsafe_allow_html=True,
+            )
 
         render_chart(df, res.get("chart_suggestion"))
 
@@ -538,19 +561,24 @@ if df is not None:
             fu_cols = st.columns(len(follow_ups))
             for i, fu in enumerate(follow_ups):
                 with fu_cols[i]:
-                    if st.button(fu, key=f"fu_{i}", use_container_width=True):
-                        st.session_state["current_question"] = fu
+                    if st.button(f"↳ {fu}", key=f"fu_{i}", use_container_width=True):
+                        st.session_state["question_input"] = fu
+                        st.session_state.pop("last_result", None)
                         st.rerun()
 
-        # Export
+        # Export summary
         if st.session_state.get("chat_history"):
-            export_lines = [f"# AI Data Analyst — Session Export\n{datetime.now().strftime('%Y-%m-%d %H:%M')}\n"]
-            for t in st.session_state["chat_history"]:
-                export_lines.append(f"\n**Q:** {t['question']}\n**A:** {t['answer']}\n**Recommendation:** {t['recommendation']}")
+            st.divider()
+            lines = [f"# Data Analysis Summary", f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M')}\n"]
+            for idx, t in enumerate(st.session_state["chat_history"], 1):
+                lines.append(f"## Q{idx}: {t['question']}")
+                lines.append(f"{t['answer']}\n")
+                if t.get("recommendation"):
+                    lines.append(f"**Recommendation:** {t['recommendation']}\n")
             st.download_button(
-                "⬇ Export conversation",
-                "\n".join(export_lines),
-                file_name="analysis_session.md",
+                "⬇ Export summary",
+                "\n".join(lines),
+                file_name=f"analysis_{datetime.now().strftime('%Y%m%d')}.md",
                 mime="text/markdown",
             )
 
