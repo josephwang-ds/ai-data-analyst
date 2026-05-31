@@ -24,11 +24,15 @@ st.set_page_config(
 # ── Helpers ────────────────────────────────────────────────────────────────────
 
 def get_client() -> OpenAI:
+    provider = st.session_state.get("provider", "DeepSeek")
     api_key = st.session_state.get("api_key") or os.getenv("OPENAI_API_KEY", "")
     if not api_key:
-        st.error("Add your OpenAI API key in the sidebar to continue.")
+        st.error("Add your API key in the sidebar.")
         st.stop()
-    return OpenAI(api_key=api_key)
+    if provider == "DeepSeek":
+        return OpenAI(api_key=api_key, base_url="https://api.deepseek.com")
+    else:
+        return OpenAI(api_key=api_key, base_url="https://generativelanguage.googleapis.com/v1beta/openai/")
 
 
 def summarize_df(df: pd.DataFrame) -> str:
@@ -45,7 +49,9 @@ def summarize_df(df: pd.DataFrame) -> str:
     return buf.getvalue()
 
 
-def ask_llm(client: OpenAI, system: str, user: str, model: str = "gpt-4o-mini") -> str:
+def ask_llm(client: OpenAI, system: str, user: str, model: str | None = None) -> str:
+    if model is None:
+        model = "deepseek-chat" if st.session_state.get("provider","DeepSeek")=="DeepSeek" else "gemini-2.0-flash"
     resp = client.chat.completions.create(
         model=model,
         messages=[{"role": "system", "content": system}, {"role": "user", "content": user}],
@@ -180,7 +186,11 @@ st.caption("Upload a CSV → ask questions in plain English → get analysis, ch
 # Sidebar
 with st.sidebar:
     st.header("⚙️ Settings")
-    api_key_input = st.text_input("OpenAI API Key", type="password", placeholder="sk-...")
+    provider = st.radio("Model", ["DeepSeek", "Gemini Flash"], horizontal=True)
+    st.session_state["provider"] = provider
+    placeholder = "AIza..." if provider == "Gemini Flash" else "sk-..."
+    label = "Google AI Studio Key" if provider == "Gemini Flash" else "DeepSeek API Key"
+    api_key_input = st.text_input(label, type="password", placeholder=placeholder)
     if api_key_input:
         st.session_state["api_key"] = api_key_input
 
@@ -196,7 +206,7 @@ with st.sidebar:
     st.markdown("**Business impact**")
     st.markdown("Cuts ad-hoc analysis turnaround from *days to minutes*, enabling self-serve data for non-technical stakeholders.")
     st.divider()
-    st.markdown("Built by [Joseph Wang](https://josephjwang.com) · [GitHub](https://github.com/josewang2025)")
+    st.markdown("Built by [Joseph Wang](https://josephjwang.com) · [GitHub](https://github.com/josephwang-ds/ai-data-analyst)")
 
 # ── Data loading ──────────────────────────────────────────────────────────────
 st.subheader("1 · Load your data")
