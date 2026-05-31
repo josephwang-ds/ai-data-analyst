@@ -1,8 +1,6 @@
 """
 AI Data Analyst — Demo ①
-Upload a CSV → ask questions in plain English → get analysis, charts, and business suggestions.
-
-Business impact: Cuts ad-hoc analysis from days to minutes.
+Upload a CSV → auto KPI dashboard → multi-turn Q&A → charts + recommendations.
 """
 
 import os
@@ -10,9 +8,11 @@ import io
 import json
 import streamlit as st
 import pandas as pd
+import numpy as np
 import plotly.express as px
 import plotly.graph_objects as go
 from openai import OpenAI
+from datetime import datetime
 
 # ── Page config ────────────────────────────────────────────────────────────────
 st.set_page_config(
@@ -21,129 +21,250 @@ st.set_page_config(
     layout="wide",
 )
 
-# ── Helpers ────────────────────────────────────────────────────────────────────
+# ── Custom CSS ─────────────────────────────────────────────────────────────────
+st.markdown("""
+<style>
+/* Header gradient */
+.hero-title {
+    font-size: 2.2rem;
+    font-weight: 700;
+    background: linear-gradient(90deg, #6366f1, #8b5cf6, #06b6d4);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    margin-bottom: 0.2rem;
+}
+.hero-sub { color: #64748b; font-size: 1rem; margin-bottom: 1.5rem; }
+
+/* KPI cards */
+.kpi-card {
+    background: linear-gradient(135deg, #1e1b4b 0%, #312e81 100%);
+    border: 1px solid #4338ca;
+    border-radius: 12px;
+    padding: 1rem 1.2rem;
+    text-align: center;
+}
+.kpi-label { color: #a5b4fc; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; }
+.kpi-value { color: #fff; font-size: 1.6rem; font-weight: 700; margin: 0.2rem 0; }
+.kpi-delta { font-size: 0.78rem; }
+.kpi-delta.pos { color: #34d399; }
+.kpi-delta.neg { color: #f87171; }
+.kpi-delta.neu { color: #94a3b8; }
+
+/* Chat bubbles */
+.chat-q {
+    background: #1e293b;
+    border-left: 3px solid #6366f1;
+    border-radius: 0 8px 8px 0;
+    padding: 0.6rem 0.9rem;
+    margin: 0.4rem 0;
+    font-size: 0.9rem;
+    color: #e2e8f0;
+}
+.chat-a {
+    background: #0f172a;
+    border-left: 3px solid #06b6d4;
+    border-radius: 0 8px 8px 0;
+    padding: 0.6rem 0.9rem;
+    margin: 0.4rem 0 1rem 0;
+    font-size: 0.88rem;
+    color: #94a3b8;
+}
+
+/* Section headers */
+.section-tag {
+    display: inline-block;
+    background: #312e81;
+    color: #a5b4fc;
+    font-size: 0.7rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    padding: 0.2rem 0.6rem;
+    border-radius: 4px;
+    margin-bottom: 0.5rem;
+}
+</style>
+""", unsafe_allow_html=True)
+
+CHART_THEME = {
+    "template": "plotly_dark",
+    "color_sequence": ["#6366f1", "#06b6d4", "#8b5cf6", "#34d399", "#f59e0b", "#f87171"],
+    "paper_bgcolor": "#0f172a",
+    "plot_bgcolor": "#0f172a",
+}
+
+# ── LLM helpers ────────────────────────────────────────────────────────────────
 
 def get_client() -> OpenAI:
     provider = st.session_state.get("provider", "DeepSeek")
     api_key = st.session_state.get("api_key") or os.getenv("OPENAI_API_KEY", "")
     if not api_key:
-        st.error("Add your API key in the sidebar.")
+        st.error("⚠️ Add your API key in the sidebar to continue.")
         st.stop()
     if provider == "DeepSeek":
         return OpenAI(api_key=api_key, base_url="https://api.deepseek.com")
     else:
         return OpenAI(api_key=api_key, base_url="https://generativelanguage.googleapis.com/v1beta/openai/")
 
+def get_model() -> str:
+    return "deepseek-chat" if st.session_state.get("provider", "DeepSeek") == "DeepSeek" else "gemini-2.0-flash"
 
-def summarize_df(df: pd.DataFrame) -> str:
-    """Compact schema + sample for the LLM context window."""
-    buf = io.StringIO()
-    buf.write(f"Shape: {df.shape[0]} rows × {df.shape[1]} columns\n\n")
-    buf.write("Column types:\n")
-    for col, dtype in df.dtypes.items():
-        buf.write(f"  {col}: {dtype}\n")
-    buf.write("\nFirst 5 rows (JSON):\n")
-    buf.write(df.head(5).to_json(orient="records", date_format="iso"))
-    buf.write("\n\nDescriptive stats (numeric):\n")
-    buf.write(df.describe(include="number").to_string())
-    return buf.getvalue()
-
-
-def ask_llm(client: OpenAI, system: str, user: str, model: str | None = None) -> str:
-    if model is None:
-        model = "deepseek-chat" if st.session_state.get("provider","DeepSeek")=="DeepSeek" else "gemini-2.0-flash"
+def ask_llm(client: OpenAI, system: str, messages: list[dict], max_tokens: int = 1200) -> str:
     resp = client.chat.completions.create(
-        model=model,
-        messages=[{"role": "system", "content": system}, {"role": "user", "content": user}],
+        model=get_model(),
+        messages=[{"role": "system", "content": system}] + messages,
         temperature=0.3,
-        max_tokens=1200,
+        max_tokens=max_tokens,
     )
     return resp.choices[0].message.content.strip()
 
+def parse_json(raw: str) -> dict:
+    try:
+        return json.loads(raw)
+    except json.JSONDecodeError:
+        cleaned = raw.strip()
+        for prefix in ["```json", "```"]:
+            cleaned = cleaned.removeprefix(prefix)
+        cleaned = cleaned.removesuffix("```").strip()
+        return json.loads(cleaned)
+
+# ── Data intelligence ──────────────────────────────────────────────────────────
+
+def detect_columns(df: pd.DataFrame) -> dict:
+    """Auto-detect column roles."""
+    date_cols, numeric_cols, categorical_cols = [], [], []
+    for col in df.columns:
+        if df[col].dtype in ["float64", "int64", "float32", "int32"]:
+            numeric_cols.append(col)
+        elif df[col].dtype == "object":
+            # Try parsing as date
+            try:
+                pd.to_datetime(df[col].dropna().head(5))
+                date_cols.append(col)
+            except Exception:
+                categorical_cols.append(col)
+        else:
+            try:
+                date_cols.append(col)
+            except Exception:
+                pass
+    return {"date": date_cols, "numeric": numeric_cols, "categorical": categorical_cols}
+
+def compute_kpis(df: pd.DataFrame, numeric_cols: list) -> list[dict]:
+    """Auto-compute KPI cards from numeric columns (top 4)."""
+    kpis = []
+    for col in numeric_cols[:4]:
+        total = df[col].sum()
+        mean = df[col].mean()
+        kpis.append({"label": col.replace("_", " ").title(), "value": total, "mean": mean})
+    return kpis
+
+def summarize_df(df: pd.DataFrame) -> str:
+    buf = io.StringIO()
+    buf.write(f"Shape: {df.shape[0]} rows × {df.shape[1]} columns\n\n")
+    buf.write("Columns and types:\n")
+    for col, dtype in df.dtypes.items():
+        sample_vals = df[col].dropna().head(3).tolist()
+        buf.write(f"  {col} ({dtype}): sample = {sample_vals}\n")
+    buf.write("\nDescriptive stats (numeric):\n")
+    buf.write(df.describe(include="number").round(2).to_string())
+    if len(df) > 5:
+        buf.write("\n\nFirst 5 rows:\n")
+        buf.write(df.head(5).to_json(orient="records", date_format="iso"))
+    return buf.getvalue()
+
+# ── LLM tasks ──────────────────────────────────────────────────────────────────
 
 def auto_profile(client: OpenAI, df: pd.DataFrame) -> dict:
-    """Return JSON with: summary, key_metrics, anomalies, chart_suggestion."""
     schema = summarize_df(df)
     system = (
-        "You are a senior business analyst. "
-        "Given a dataset schema and sample, return ONLY valid JSON with these keys:\n"
-        '  "summary": one-paragraph plain-English description of what the data is about,\n'
-        '  "key_metrics": list of 3-5 most important columns/metrics to watch,\n'
-        '  "anomalies": list of 2-3 potential data quality issues or outliers to flag,\n'
-        '  "chart_suggestion": {"type": "bar|line|scatter|histogram", "x": "<col>", "y": "<col>", "color": "<col or null>", "title": "<title>"}\n'
+        "You are a senior business analyst. Analyze this dataset and return ONLY valid JSON:\n"
+        '{\n'
+        '  "summary": "one paragraph describing what this data is about and key patterns",\n'
+        '  "key_metrics": ["metric1", "metric2", "metric3"],\n'
+        '  "anomalies": ["observation1", "observation2"],\n'
+        '  "insights": ["insight1", "insight2", "insight3"],\n'
+        '  "chart_suggestions": [\n'
+        '    {"type": "bar|line|scatter|histogram", "x": "<col>", "y": "<col>", "color": "<col or null>", "title": "<title>"},\n'
+        '    {"type": "bar|line|scatter|histogram", "x": "<col>", "y": "<col>", "color": "<col or null>", "title": "<title>"}\n'
+        '  ]\n'
+        '}\n'
         "Return JSON only — no markdown fences."
     )
-    raw = ask_llm(client, system, schema)
-    try:
-        return json.loads(raw)
-    except json.JSONDecodeError:
-        # strip markdown fences if model added them anyway
-        cleaned = raw.strip().removeprefix("```json").removeprefix("```").removesuffix("```").strip()
-        return json.loads(cleaned)
-
+    raw = ask_llm(client, system, [{"role": "user", "content": schema}], max_tokens=1500)
+    return parse_json(raw)
 
 def answer_question(client: OpenAI, df: pd.DataFrame, question: str) -> dict:
-    """
-    Return JSON: {answer, chart_suggestion, business_recommendation}
-    chart_suggestion may be null.
-    """
     schema = summarize_df(df)
+    history = st.session_state.get("chat_history", [])
+
+    # Build conversation context
+    messages = []
+    for turn in history[-4:]:  # last 4 turns for context
+        messages.append({"role": "user", "content": turn["question"]})
+        messages.append({"role": "assistant", "content": turn["answer"]})
+    messages.append({"role": "user", "content": f"Dataset:\n{schema}\n\nQuestion: {question}"})
+
     system = (
-        "You are a senior data analyst. The user will ask a business question about the dataset below. "
-        "Provide a clear, specific answer with numbers where possible. "
-        "Return ONLY valid JSON with:\n"
-        '  "answer": detailed plain-English answer,\n'
+        "You are a senior data analyst with access to the dataset described. "
+        "Answer business questions with specific numbers. "
+        "You have memory of the conversation history — use it for follow-up questions. "
+        "Return ONLY valid JSON:\n"
+        '{\n'
+        '  "answer": "detailed answer with specific numbers",\n'
         '  "chart_suggestion": {"type": "bar|line|scatter|histogram|box", "x": "<col>", "y": "<col>", "color": "<col or null>", "title": "<title>"} or null,\n'
-        '  "business_recommendation": 2-3 sentence actionable recommendation.\n'
+        '  "business_recommendation": "2-3 sentence actionable recommendation",\n'
+        '  "follow_up_questions": ["follow-up 1", "follow-up 2"]\n'
+        '}\n'
         "Return JSON only."
     )
-    user = f"Dataset info:\n{schema}\n\nQuestion: {question}"
-    raw = ask_llm(client, system, user)
-    try:
-        return json.loads(raw)
-    except json.JSONDecodeError:
-        cleaned = raw.strip().removeprefix("```json").removeprefix("```").removesuffix("```").strip()
-        return json.loads(cleaned)
+    raw = ask_llm(client, system, messages, max_tokens=1400)
+    return parse_json(raw)
 
+# ── Chart rendering ────────────────────────────────────────────────────────────
 
-def render_chart(df: pd.DataFrame, spec: dict | None) -> None:
+def render_chart(df: pd.DataFrame, spec: dict | None, height: int = 380) -> None:
     if not spec:
         return
     chart_type = spec.get("type", "bar")
     x, y = spec.get("x"), spec.get("y")
     color = spec.get("color") or None
     title = spec.get("title", "")
-
-    # Validate columns exist
     valid_cols = set(df.columns)
-    if x and x not in valid_cols:
-        x = None
-    if y and y not in valid_cols:
-        y = None
-    if color and color not in valid_cols:
-        color = None
+    if x and x not in valid_cols: x = None
+    if y and y not in valid_cols: y = None
+    if color and color not in valid_cols: color = None
 
+    kwargs = dict(
+        color_discrete_sequence=CHART_THEME["color_sequence"],
+        template=CHART_THEME["template"],
+        title=title,
+    )
     try:
         if chart_type == "line":
-            fig = px.line(df, x=x, y=y, color=color, title=title)
+            fig = px.line(df, x=x, y=y, color=color, markers=True, **kwargs)
         elif chart_type == "scatter":
-            fig = px.scatter(df, x=x, y=y, color=color, title=title)
+            fig = px.scatter(df, x=x, y=y, color=color, **kwargs)
         elif chart_type == "histogram":
-            fig = px.histogram(df, x=x or y, color=color, title=title)
+            fig = px.histogram(df, x=x or y, color=color, **kwargs)
         elif chart_type == "box":
-            fig = px.box(df, x=x, y=y, color=color, title=title)
-        else:  # bar (default)
-            # aggregate if needed
+            fig = px.box(df, x=x, y=y, color=color, **kwargs)
+        else:
             if x and y and x in df.columns and y in df.columns:
-                agg = df.groupby(x)[y].mean().reset_index().sort_values(y, ascending=False).head(20)
-                fig = px.bar(agg, x=x, y=y, color=color if color in agg.columns else None, title=title)
+                agg = df.groupby(x)[y].sum().reset_index().sort_values(y, ascending=False).head(15)
+                fig = px.bar(agg, x=x, y=y, color=color if color in agg.columns else None, **kwargs)
             else:
                 return
-        fig.update_layout(height=400)
+        fig.update_layout(
+            height=height,
+            paper_bgcolor=CHART_THEME["paper_bgcolor"],
+            plot_bgcolor=CHART_THEME["plot_bgcolor"],
+            font=dict(color="#e2e8f0"),
+            margin=dict(l=20, r=20, t=40, b=20),
+        )
         st.plotly_chart(fig, use_container_width=True)
     except Exception as e:
-        st.warning(f"Chart could not render: {e}")
-
+        st.warning(f"Chart error: {e}")
 
 # ── Sample data ────────────────────────────────────────────────────────────────
 
@@ -171,21 +292,22 @@ SAMPLE_CSV = """date,product,category,revenue,units_sold,conversion_rate,ad_spen
 """
 
 SAMPLE_QUESTIONS = [
-    "Which product has the highest average revenue?",
-    "Which region has the best conversion rate?",
-    "Is there a correlation between ad spend and revenue?",
-    "What is the week-over-week revenue trend for Widget A?",
-    "Which product has the worst ROI on ad spend?",
+    "Which product has the highest ROI on ad spend?",
+    "What is the revenue trend week over week?",
+    "Which region is underperforming?",
+    "Compare conversion rates across products",
+    "Where should we increase ad budget?",
 ]
 
 # ── UI ─────────────────────────────────────────────────────────────────────────
 
-st.title("📊 AI Data Analyst")
-st.caption("Upload a CSV → ask questions in plain English → get analysis, charts, and business recommendations.")
+# Hero header
+st.markdown('<p class="hero-title">📊 AI Data Analyst</p>', unsafe_allow_html=True)
+st.markdown('<p class="hero-sub">Upload any CSV → instant KPI dashboard → multi-turn AI analysis → actionable recommendations</p>', unsafe_allow_html=True)
 
 # Sidebar
 with st.sidebar:
-    st.header("⚙️ Settings")
+    st.markdown("### ⚙️ Settings")
     provider = st.radio("Model", ["DeepSeek", "Gemini Flash"], horizontal=True)
     st.session_state["provider"] = provider
     placeholder = "AIza..." if provider == "Gemini Flash" else "sk-..."
@@ -195,48 +317,111 @@ with st.sidebar:
         st.session_state["api_key"] = api_key_input
 
     st.divider()
-    st.markdown("**How it works**")
-    st.markdown(
-        "1. Upload your CSV (or use the sample)\n"
-        "2. The AI profiles your data automatically\n"
-        "3. Ask any business question in plain English\n"
-        "4. Get answers, charts, and next-step recommendations"
-    )
-    st.divider()
-    st.markdown("**Business impact**")
-    st.markdown("Cuts ad-hoc analysis turnaround from *days to minutes*, enabling self-serve data for non-technical stakeholders.")
-    st.divider()
-    st.markdown("Built by [Joseph Wang](https://josephjwang.com) · [GitHub](https://github.com/josephwang-ds/ai-data-analyst)")
 
-# ── Data loading ──────────────────────────────────────────────────────────────
-st.subheader("1 · Load your data")
+    # Chat history in sidebar
+    if st.session_state.get("chat_history"):
+        st.markdown("### 💬 Conversation")
+        for i, turn in enumerate(st.session_state["chat_history"]):
+            with st.expander(f"Q{i+1}: {turn['question'][:40]}…", expanded=False):
+                st.caption(turn["answer"][:200] + "…" if len(turn["answer"]) > 200 else turn["answer"])
+        if st.button("🗑 Clear history", use_container_width=True):
+            st.session_state["chat_history"] = []
+            st.rerun()
 
-col1, col2 = st.columns([2, 1])
+    st.divider()
+    st.markdown("**Stack:** Streamlit · Pandas · Plotly · DeepSeek / Gemini")
+    st.markdown("**[GitHub](https://github.com/josephwang-ds/ai-data-analyst)** · **[josephjwang.com](https://josephjwang.com)**")
+
+# ── 1. Data loading ────────────────────────────────────────────────────────────
+st.markdown('<span class="section-tag">Step 1 — Load Data</span>', unsafe_allow_html=True)
+
+col1, col2 = st.columns([3, 1])
 with col1:
-    uploaded = st.file_uploader("Upload a CSV file", type=["csv"])
+    uploaded = st.file_uploader("Upload a CSV file", type=["csv"], label_visibility="collapsed")
 with col2:
-    use_sample = st.button("▶ Use sample dataset", use_container_width=True)
+    use_sample = st.button("▶ Use sample data", use_container_width=True, type="secondary")
 
 df = None
 if uploaded:
     df = pd.read_csv(uploaded)
-    st.success(f"Loaded **{df.shape[0]:,}** rows × **{df.shape[1]}** columns")
+    st.success(f"✅ Loaded **{df.shape[0]:,}** rows × **{df.shape[1]}** columns")
+    if "sample_loaded" in st.session_state:
+        del st.session_state["sample_loaded"]
 elif use_sample or "sample_loaded" in st.session_state:
     st.session_state["sample_loaded"] = True
     df = pd.read_csv(io.StringIO(SAMPLE_CSV))
-    st.info("Using sample e-commerce dataset (weekly product sales, Jan 2024)")
+    st.info("📦 Sample dataset: weekly e-commerce sales (4 products × 5 weeks, Jan 2024)")
 
 if df is not None:
-    with st.expander("Preview data", expanded=False):
-        st.dataframe(df.head(10), use_container_width=True)
+    cols = detect_columns(df)
 
-    # ── Auto profile ──────────────────────────────────────────────────────────
-    st.subheader("2 · Auto analysis")
+    with st.expander("🔍 Data preview", expanded=False):
+        tab1, tab2 = st.tabs(["Table", "Stats"])
+        with tab1:
+            st.dataframe(df, use_container_width=True, height=220)
+        with tab2:
+            st.dataframe(df.describe(include="all").round(2), use_container_width=True)
 
-    profile_key = f"profile_{id(df)}"
+    # ── 2. KPI Dashboard ──────────────────────────────────────────────────────
+    st.markdown('<span class="section-tag">Step 2 — KPI Dashboard</span>', unsafe_allow_html=True)
+
+    kpis = compute_kpis(df, cols["numeric"])
+    if kpis:
+        kpi_cols = st.columns(len(kpis))
+        for i, kpi in enumerate(kpis):
+            with kpi_cols[i]:
+                val = kpi["value"]
+                formatted = f"${val:,.0f}" if "revenue" in kpi["label"].lower() or "spend" in kpi["label"].lower() else f"{val:,.1f}"
+                st.metric(
+                    label=kpi["label"],
+                    value=formatted,
+                    delta=f"avg {kpi['mean']:,.1f}",
+                )
+
+    # Auto trend chart if date column detected
+    if cols["date"] and cols["numeric"]:
+        date_col = cols["date"][0]
+        top_numeric = cols["numeric"][0]
+        try:
+            trend_df = df.copy()
+            trend_df[date_col] = pd.to_datetime(trend_df[date_col])
+            agg_col = cols["categorical"][0] if cols["categorical"] else None
+            if agg_col:
+                trend_agg = trend_df.groupby([date_col, agg_col])[top_numeric].sum().reset_index()
+                fig = px.line(
+                    trend_agg, x=date_col, y=top_numeric, color=agg_col,
+                    title=f"{top_numeric.replace('_',' ').title()} Trend",
+                    color_discrete_sequence=CHART_THEME["color_sequence"],
+                    template=CHART_THEME["template"],
+                    markers=True,
+                )
+            else:
+                trend_agg = trend_df.groupby(date_col)[top_numeric].sum().reset_index()
+                fig = px.line(
+                    trend_agg, x=date_col, y=top_numeric,
+                    title=f"{top_numeric.replace('_',' ').title()} Trend",
+                    color_discrete_sequence=CHART_THEME["color_sequence"],
+                    template=CHART_THEME["template"],
+                    markers=True,
+                )
+            fig.update_layout(
+                height=320,
+                paper_bgcolor=CHART_THEME["paper_bgcolor"],
+                plot_bgcolor=CHART_THEME["plot_bgcolor"],
+                font=dict(color="#e2e8f0"),
+                margin=dict(l=20, r=20, t=40, b=20),
+            )
+            st.plotly_chart(fig, use_container_width=True)
+        except Exception:
+            pass
+
+    # ── 3. AI Auto Profile ────────────────────────────────────────────────────
+    st.markdown('<span class="section-tag">Step 3 — AI Profile</span>', unsafe_allow_html=True)
+
+    profile_key = f"profile_{df.shape}"
     if profile_key not in st.session_state:
-        if st.button("🔍 Run auto analysis", use_container_width=False):
-            with st.spinner("Analyzing your dataset…"):
+        if st.button("🤖 Run AI Analysis", type="primary", use_container_width=False):
+            with st.spinner("Analyzing dataset with AI…"):
                 client = get_client()
                 try:
                     profile = auto_profile(client, df)
@@ -247,62 +432,132 @@ if df is not None:
     if profile_key in st.session_state:
         profile = st.session_state[profile_key]
 
-        col_a, col_b = st.columns(2)
+        col_a, col_b = st.columns([3, 2])
         with col_a:
-            st.markdown("**Dataset summary**")
+            st.markdown("**📋 Summary**")
             st.write(profile.get("summary", ""))
 
-            st.markdown("**Key metrics to watch**")
-            for m in profile.get("key_metrics", []):
-                st.markdown(f"- {m}")
+            if profile.get("insights"):
+                st.markdown("**💡 Key Insights**")
+                for insight in profile.get("insights", []):
+                    st.markdown(f"→ {insight}")
 
         with col_b:
-            st.markdown("**Data quality flags**")
-            for a in profile.get("anomalies", []):
-                st.warning(a)
+            if profile.get("key_metrics"):
+                st.markdown("**📌 Metrics to watch**")
+                for m in profile.get("key_metrics", []):
+                    st.markdown(f"• {m}")
 
-        st.markdown("**Suggested chart**")
-        render_chart(df, profile.get("chart_suggestion"))
+            if profile.get("anomalies"):
+                st.markdown("**⚠️ Flags**")
+                for a in profile.get("anomalies", []):
+                    st.warning(a)
 
-    # ── Q&A ───────────────────────────────────────────────────────────────────
-    st.subheader("3 · Ask a business question")
+        # Multiple chart suggestions
+        suggestions = profile.get("chart_suggestions", [])
+        if suggestions:
+            tabs = st.tabs([f"Chart {i+1}" for i in range(len(suggestions))])
+            for i, spec in enumerate(suggestions):
+                with tabs[i]:
+                    render_chart(df, spec)
 
-    # Suggested questions
+    # ── 4. Multi-turn Q&A ─────────────────────────────────────────────────────
+    st.markdown('<span class="section-tag">Step 4 — Ask Anything</span>', unsafe_allow_html=True)
+
+    # Chat history display
+    if st.session_state.get("chat_history"):
+        for turn in st.session_state["chat_history"]:
+            st.markdown(f'<div class="chat-q">🧑 {turn["question"]}</div>', unsafe_allow_html=True)
+            st.markdown(f'<div class="chat-a">🤖 {turn["answer"][:300]}{"…" if len(turn["answer"]) > 300 else ""}</div>', unsafe_allow_html=True)
+            if turn.get("chart_spec"):
+                render_chart(df, turn["chart_spec"], height=300)
+
+    # Quick picks
     st.markdown("**Quick picks:**")
     q_cols = st.columns(len(SAMPLE_QUESTIONS))
-    chosen_q = None
     for i, q in enumerate(SAMPLE_QUESTIONS):
         with q_cols[i]:
-            if st.button(q, key=f"sq_{i}"):
-                chosen_q = q
+            if st.button(q, key=f"sq_{i}", use_container_width=True):
+                st.session_state["current_question"] = q
 
     question = st.text_input(
-        "Or type your own question",
-        value=chosen_q or "",
-        placeholder="Which product has the highest conversion rate?",
+        "Ask a business question",
+        value=st.session_state.get("current_question", ""),
+        placeholder="e.g. Which product should we double down on next quarter?",
+        key="question_input",
+        label_visibility="collapsed",
     )
+    if question != st.session_state.get("current_question", ""):
+        st.session_state["current_question"] = question
 
-    if question and st.button("💬 Analyse", type="primary"):
+    col_btn1, col_btn2 = st.columns([1, 5])
+    with col_btn1:
+        analyse = st.button("💬 Ask", type="primary", disabled=not question, use_container_width=True)
+
+    if analyse and question:
         with st.spinner("Thinking…"):
             client = get_client()
             try:
                 result = answer_question(client, df, question)
+
+                # Add to history
+                if "chat_history" not in st.session_state:
+                    st.session_state["chat_history"] = []
+                st.session_state["chat_history"].append({
+                    "question": question,
+                    "answer": result.get("answer", ""),
+                    "chart_spec": result.get("chart_suggestion"),
+                    "recommendation": result.get("business_recommendation", ""),
+                    "follow_ups": result.get("follow_up_questions", []),
+                })
                 st.session_state["last_result"] = result
+                st.session_state["current_question"] = ""
+                st.rerun()
             except Exception as e:
                 st.error(f"Failed: {e}")
 
-    if "last_result" in st.session_state:
+    # Latest result display
+    if st.session_state.get("last_result"):
         res = st.session_state["last_result"]
         st.divider()
+
         col_ans, col_rec = st.columns([3, 2])
         with col_ans:
-            st.markdown("**Answer**")
+            st.markdown("**💬 Answer**")
             st.write(res.get("answer", ""))
         with col_rec:
-            st.markdown("**Business recommendation**")
+            st.markdown("**🎯 Recommendation**")
             st.info(res.get("business_recommendation", ""))
 
         render_chart(df, res.get("chart_suggestion"))
 
+        # Follow-up suggestions
+        follow_ups = res.get("follow_up_questions", [])
+        if follow_ups:
+            st.markdown("**Suggested follow-ups:**")
+            fu_cols = st.columns(len(follow_ups))
+            for i, fu in enumerate(follow_ups):
+                with fu_cols[i]:
+                    if st.button(fu, key=f"fu_{i}", use_container_width=True):
+                        st.session_state["current_question"] = fu
+                        st.rerun()
+
+        # Export
+        if st.session_state.get("chat_history"):
+            export_lines = [f"# AI Data Analyst — Session Export\n{datetime.now().strftime('%Y-%m-%d %H:%M')}\n"]
+            for t in st.session_state["chat_history"]:
+                export_lines.append(f"\n**Q:** {t['question']}\n**A:** {t['answer']}\n**Recommendation:** {t['recommendation']}")
+            st.download_button(
+                "⬇ Export conversation",
+                "\n".join(export_lines),
+                file_name="analysis_session.md",
+                mime="text/markdown",
+            )
+
 else:
-    st.info("⬆ Upload a CSV or click **Use sample dataset** to get started.")
+    st.markdown("""
+    <div style="text-align:center; padding: 3rem; color: #64748b;">
+        <div style="font-size:3rem">📂</div>
+        <p style="font-size:1.1rem; margin-top:0.5rem">Upload a CSV or click <b>Use sample data</b> to get started</p>
+    </div>
+    """, unsafe_allow_html=True)
