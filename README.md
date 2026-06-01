@@ -31,6 +31,17 @@ streamlit run app.py
 
 API key can also be entered directly in the sidebar.
 
+## ModelScope deployment
+
+This app can be deployed to ModelScope Studio with the same codebase.
+
+- SDK: `Streamlit`
+- Entry file: `app.py`
+- Dependency file: `requirements.txt`
+- Runtime secret: `OPENAI_API_KEY` (or `DEEPSEEK_API_KEY`)
+
+Detailed checklist: [`MODELSCOPE_DEPLOY.md`](./MODELSCOPE_DEPLOY.md)
+
 ## Example questions
 
 - Which product has the worst ROI on ad spend?
