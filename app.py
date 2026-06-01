@@ -24,29 +24,28 @@ st.set_page_config(
 # ── Custom CSS ─────────────────────────────────────────────────────────────────
 st.markdown("""
 <style>
-[data-testid="stAppViewContainer"] { background:#0f1117; }
-[data-testid="stSidebar"] { background:#1a1f2e; border-right:1px solid #243042; }
+[data-testid="stAppViewContainer"] { background:var(--background-color); }
+[data-testid="stSidebar"] { background:var(--secondary-background-color); border-right:1px solid rgba(120,130,150,0.35); }
 [data-testid="stAppViewContainer"] .main .block-container { max-width:1220px; padding-top:1.2rem; }
 [data-testid="stAppViewContainer"], [data-testid="stSidebar"] { font-size:16px; }
-h1,h2,h3,p,label,div,span { color:#e2e8f0 !important; }
-p, label, [data-testid="stMarkdownContainer"] p { font-size:0.95rem !important; }
+p, label, [data-testid="stMarkdownContainer"] p { font-size:0.95rem; }
 .stButton>button {
-    background:#1e293b;border:1px solid #475569;color:#e2e8f0 !important;border-radius:8px;
+    background:var(--secondary-background-color);border:1px solid rgba(120,130,150,0.45);color:var(--text-color) !important;border-radius:8px;
     min-height:42px;font-weight:600;
 }
-.stButton>button:hover { border-color:#818cf8;background:#2d3748; }
-.stButton>button[kind="primary"] { background:#6366f1 !important;border-color:#6366f1 !important; }
+.stButton>button:hover { border-color:var(--primary-color); }
+.stButton>button[kind="primary"] { background:var(--primary-color) !important;border-color:var(--primary-color) !important;color:white !important; }
 [data-testid="stDownloadButton"]>button {
-    background:#1e293b !important;border:1px solid #475569 !important;color:#e2e8f0 !important;
+    background:var(--secondary-background-color) !important;border:1px solid rgba(120,130,150,0.45) !important;color:var(--text-color) !important;
     border-radius:8px !important;min-height:42px;font-weight:600;
 }
-[data-testid="stDownloadButton"]>button:hover { border-color:#818cf8 !important; }
+[data-testid="stDownloadButton"]>button:hover { border-color:var(--primary-color) !important; }
 [data-testid="stFileUploader"] {
-    border:2px dashed #475569 !important;border-radius:10px !important;background:#111827 !important;
+    border:2px dashed rgba(120,130,150,0.45) !important;border-radius:10px !important;background:var(--secondary-background-color) !important;
     padding:1rem !important;
 }
-[data-testid="stFileUploaderDropzone"] { background:#111827 !important;border:0 !important; }
-[data-testid="stFileUploaderDropzone"] * { color:#cbd5e1 !important; }
+[data-testid="stFileUploaderDropzone"] { background:var(--secondary-background-color) !important;border:0 !important; }
+[data-testid="stFileUploaderDropzone"] * { color:var(--text-color) !important; }
 [data-testid="stDataFrame"] { border:1px solid #334155;border-radius:8px; }
 
 /* Header gradient */
@@ -58,7 +57,7 @@ p, label, [data-testid="stMarkdownContainer"] p { font-size:0.95rem !important; 
     -webkit-text-fill-color: transparent;
     margin-bottom: 0.2rem;
 }
-.hero-sub { color: #64748b; font-size: 1rem; margin-bottom: 1.5rem; }
+.hero-sub { color: var(--text-color); opacity:0.8; font-size: 1rem; margin-bottom: 1.5rem; }
 
 /* KPI cards */
 .kpi-card {
@@ -77,29 +76,30 @@ p, label, [data-testid="stMarkdownContainer"] p { font-size:0.95rem !important; 
 
 /* Chat bubbles */
 .chat-q {
-    background: #1e293b;
+    background: var(--secondary-background-color);
     border-left: 3px solid #6366f1;
     border-radius: 0 8px 8px 0;
     padding: 0.6rem 0.9rem;
     margin: 0.4rem 0;
     font-size: 0.9rem;
-    color: #e2e8f0;
+    color: var(--text-color);
 }
 .chat-a {
-    background: #0f172a;
+    background: var(--secondary-background-color);
     border-left: 3px solid #06b6d4;
     border-radius: 0 8px 8px 0;
     padding: 0.6rem 0.9rem;
     margin: 0.4rem 0 1rem 0;
     font-size: 0.88rem;
-    color: #94a3b8;
+    color: var(--text-color);
+    opacity:0.9;
 }
 
 /* Section headers */
 .section-tag {
     display: inline-block;
-    background: #1e293b;
-    color: #94a3b8;
+    background: var(--secondary-background-color);
+    color: var(--text-color);
     font-size: 0.76rem;
     font-weight: 700;
     text-transform: uppercase;
@@ -107,15 +107,14 @@ p, label, [data-testid="stMarkdownContainer"] p { font-size:0.95rem !important; 
     padding: 0.3rem 0.8rem;
     border-radius: 4px;
     margin-bottom: 1rem;
+    border: 1px solid rgba(120,130,150,0.35);
 }
 </style>
 """, unsafe_allow_html=True)
 
 CHART_THEME = {
-    "template": "plotly_dark",
+    "template": "streamlit",
     "color_sequence": ["#6366f1", "#06b6d4", "#34d399", "#f59e0b", "#f43f5e", "#a78bfa"],
-    "paper_bgcolor": "#0f1117",
-    "plot_bgcolor": "#0f1117",
 }
 
 # ── LLM helpers ────────────────────────────────────────────────────────────────
@@ -277,9 +276,6 @@ def render_chart(df: pd.DataFrame, spec: dict | None, height: int = 380) -> None
                 return
         fig.update_layout(
             height=height,
-            paper_bgcolor=CHART_THEME["paper_bgcolor"],
-            plot_bgcolor=CHART_THEME["plot_bgcolor"],
-            font=dict(color="#e2e8f0"),
             margin=dict(l=20, r=20, t=40, b=20),
         )
         st.plotly_chart(fig, use_container_width=True)
@@ -478,9 +474,6 @@ if df is not None:
                 )
             fig.update_layout(
                 height=320,
-                paper_bgcolor=CHART_THEME["paper_bgcolor"],
-                plot_bgcolor=CHART_THEME["plot_bgcolor"],
-                font=dict(color="#e2e8f0"),
                 margin=dict(l=20, r=20, t=40, b=20),
             )
             st.plotly_chart(fig, use_container_width=True)
