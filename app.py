@@ -24,6 +24,31 @@ st.set_page_config(
 # ── Custom CSS ─────────────────────────────────────────────────────────────────
 st.markdown("""
 <style>
+[data-testid="stAppViewContainer"] { background:#0f1117; }
+[data-testid="stSidebar"] { background:#1a1f2e; border-right:1px solid #243042; }
+[data-testid="stAppViewContainer"] .main .block-container { max-width:1220px; padding-top:1.2rem; }
+[data-testid="stAppViewContainer"], [data-testid="stSidebar"] { font-size:16px; }
+h1,h2,h3,p,label,div,span { color:#e2e8f0 !important; }
+p, label, [data-testid="stMarkdownContainer"] p { font-size:0.95rem !important; }
+.stButton>button {
+    background:#1e293b;border:1px solid #475569;color:#e2e8f0 !important;border-radius:8px;
+    min-height:42px;font-weight:600;
+}
+.stButton>button:hover { border-color:#818cf8;background:#2d3748; }
+.stButton>button[kind="primary"] { background:#6366f1 !important;border-color:#6366f1 !important; }
+[data-testid="stDownloadButton"]>button {
+    background:#1e293b !important;border:1px solid #475569 !important;color:#e2e8f0 !important;
+    border-radius:8px !important;min-height:42px;font-weight:600;
+}
+[data-testid="stDownloadButton"]>button:hover { border-color:#818cf8 !important; }
+[data-testid="stFileUploader"] {
+    border:2px dashed #475569 !important;border-radius:10px !important;background:#111827 !important;
+    padding:1rem !important;
+}
+[data-testid="stFileUploaderDropzone"] { background:#111827 !important;border:0 !important; }
+[data-testid="stFileUploaderDropzone"] * { color:#cbd5e1 !important; }
+[data-testid="stDataFrame"] { border:1px solid #334155;border-radius:8px; }
+
 /* Header gradient */
 .hero-title {
     font-size: 2.2rem;
@@ -73,24 +98,24 @@ st.markdown("""
 /* Section headers */
 .section-tag {
     display: inline-block;
-    background: #312e81;
-    color: #a5b4fc;
-    font-size: 0.7rem;
-    font-weight: 600;
+    background: #1e293b;
+    color: #94a3b8;
+    font-size: 0.76rem;
+    font-weight: 700;
     text-transform: uppercase;
-    letter-spacing: 0.08em;
-    padding: 0.2rem 0.6rem;
+    letter-spacing: 0.1em;
+    padding: 0.3rem 0.8rem;
     border-radius: 4px;
-    margin-bottom: 0.5rem;
+    margin-bottom: 1rem;
 }
 </style>
 """, unsafe_allow_html=True)
 
 CHART_THEME = {
     "template": "plotly_dark",
-    "color_sequence": ["#6366f1", "#06b6d4", "#8b5cf6", "#34d399", "#f59e0b", "#f87171"],
-    "paper_bgcolor": "#0f172a",
-    "plot_bgcolor": "#0f172a",
+    "color_sequence": ["#6366f1", "#06b6d4", "#34d399", "#f59e0b", "#f43f5e", "#a78bfa"],
+    "paper_bgcolor": "#0f1117",
+    "plot_bgcolor": "#0f1117",
 }
 
 # ── LLM helpers ────────────────────────────────────────────────────────────────
