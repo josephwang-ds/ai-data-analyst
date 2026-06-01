@@ -34,7 +34,8 @@ p, label, [data-testid="stMarkdownContainer"] p { font-size:0.95rem; }
     min-height:42px;font-weight:600;
 }
 .stButton>button:hover { border-color:var(--primary-color); }
-.stButton>button[kind="primary"] { background:var(--primary-color) !important;border-color:var(--primary-color) !important;color:white !important; }
+.stButton>button[data-testid="baseButton-primary"] { background:#4f46e5 !important;border-color:#4f46e5 !important;color:white !important; }
+  .stButton>button[kind="primary"] { background:#4f46e5 !important;border-color:#4f46e5 !important;color:white !important; }
 [data-testid="stDownloadButton"]>button {
     background:var(--secondary-background-color) !important;border:1px solid rgba(120,130,150,0.45) !important;color:var(--text-color) !important;
     border-radius:8px !important;min-height:42px;font-weight:600;
@@ -366,12 +367,12 @@ with st.sidebar:
         for i, turn in enumerate(st.session_state["chat_history"]):
             with st.expander(f"Q{i+1}: {turn['question'][:35]}…", expanded=False):
                 st.caption(turn["answer"][:180] + "…" if len(turn["answer"]) > 180 else turn["answer"])
-        if st.button("🗑 Clear history", use_container_width=True):
+        if st.button("Clear history", use_container_width=True):
             st.session_state["chat_history"] = []
             st.rerun()
         st.divider()
 
-    if st.button("♻️ Reset demo state", use_container_width=True):
+    if st.button("Reset", use_container_width=True):
         for key in [
             "sample_loaded",
             "_q_inject",
@@ -395,7 +396,7 @@ col1, col2 = st.columns([3, 1])
 with col1:
     uploaded = st.file_uploader("Upload a CSV file", type=["csv"], label_visibility="collapsed")
 with col2:
-    use_sample = st.button("▶ Use sample data", use_container_width=True, type="secondary")
+    use_sample = st.button("Use sample data", use_container_width=True, type="secondary")
 
 df = None
 if uploaded:
@@ -485,7 +486,7 @@ if df is not None:
 
     profile_key = f"profile_{df.shape}"
     if profile_key not in st.session_state:
-        if st.button("🤖 Run AI Analysis", type="primary", use_container_width=False):
+        if st.button("Run AI Analysis", type="primary", use_container_width=False):
             with st.spinner("Analyzing dataset with AI…"):
                 client = get_client()
                 try:
@@ -552,9 +553,9 @@ if df is not None:
 
     col_btn1, col_btn2, col_btn3 = st.columns([1, 1, 6])
     with col_btn1:
-        analyse = st.button("💬 Ask", type="primary", disabled=not question, use_container_width=True)
+        analyse = st.button("Ask", type="primary", disabled=not question, use_container_width=True)
     with col_btn2:
-        if st.button("🗑 Clear", use_container_width=True):
+        if st.button("Clear", use_container_width=True):
             st.session_state["chat_history"] = []
             st.session_state.pop("last_result", None)
             st.rerun()
@@ -617,7 +618,7 @@ if df is not None:
         st.divider()
         col_sum, col_exp = st.columns([1, 1])
         with col_sum:
-            if st.button("📋 Generate Session Summary", use_container_width=True):
+            if st.button("Generate Session Summary", use_container_width=True):
                 with st.spinner("Synthesizing analysis…"):
                     client = get_client()
                     qa_log = "\n\n".join(
