@@ -299,6 +299,18 @@ SAMPLE_QUESTIONS = [
 # Hero header
 st.markdown('<p class="hero-title">📊 AI Data Analyst</p>', unsafe_allow_html=True)
 st.markdown('<p class="hero-sub">Upload any CSV → instant KPI dashboard → multi-turn AI analysis → actionable recommendations</p>', unsafe_allow_html=True)
+st.markdown(
+    """
+<div style="background:#1a1f2e;border:1px solid #334155;border-radius:10px;padding:0.9rem 1.1rem;color:#cbd5e1;line-height:1.75;margin-bottom:0.8rem;font-size:0.86rem;">
+<b>Demo storyline</b><br>
+1) Start with KPI snapshot to frame business health<br>
+2) Use one trend chart to explain what changed and where<br>
+3) End with one AI-backed action recommendation (budget, region, or product focus)<br><br>
+<b>Suggested flow (2-4 min)</b>: sample data start → ask 2 follow-ups → upload one CSV for adaptation proof
+</div>
+""",
+    unsafe_allow_html=True,
+)
 
 # Sidebar
 with st.sidebar:
@@ -338,6 +350,19 @@ with st.sidebar:
             st.rerun()
         st.divider()
 
+    if st.button("♻️ Reset demo state", use_container_width=True):
+        for key in [
+            "sample_loaded",
+            "_q_inject",
+            "question_input",
+            "chat_history",
+            "last_result",
+            "session_summary",
+        ]:
+            st.session_state.pop(key, None)
+        st.rerun()
+    st.divider()
+
     st.markdown("**Stack:** Streamlit · Pandas · Plotly · DeepSeek")
     st.markdown("**[GitHub](https://github.com/josephwang-ds/ai-data-analyst)** · **[josephjwang.com](https://josephjwang.com)**")
 
@@ -353,10 +378,19 @@ with col2:
 
 df = None
 if uploaded:
-    df = pd.read_csv(uploaded)
-    st.success(f"✅ Loaded **{df.shape[0]:,}** rows × **{df.shape[1]}** columns")
-    if "sample_loaded" in st.session_state:
-        del st.session_state["sample_loaded"]
+    try:
+        df = pd.read_csv(uploaded)
+    except Exception as e:
+        st.error(f"Failed to read CSV. Please check encoding/delimiter. Detail: {e}")
+        df = None
+    if df is not None:
+        if df.empty:
+            st.error("Uploaded CSV is empty. Please upload a file with data rows.")
+            df = None
+        else:
+            st.success(f"✅ Loaded **{df.shape[0]:,}** rows × **{df.shape[1]}** columns")
+            if "sample_loaded" in st.session_state:
+                del st.session_state["sample_loaded"]
 elif use_sample or "sample_loaded" in st.session_state:
     st.session_state["sample_loaded"] = True
     df = pd.read_csv(io.StringIO(SAMPLE_CSV))
@@ -364,6 +398,9 @@ elif use_sample or "sample_loaded" in st.session_state:
 
 if df is not None:
     cols = detect_columns(df)
+    st.caption(
+        f"Detected columns — date: {len(cols['date'])}, numeric: {len(cols['numeric'])}, categorical: {len(cols['categorical'])}"
+    )
 
     with st.expander("🔍 Data preview", expanded=False):
         tab1, tab2 = st.tabs(["Table", "Stats"])
@@ -528,6 +565,12 @@ if df is not None:
     if st.session_state.get("last_result"):
         res = st.session_state["last_result"]
         st.divider()
+        st.markdown(
+            "<div style='background:#111827;border:1px solid #334155;border-radius:10px;padding:0.7rem 1rem;color:#cbd5e1;font-size:0.84rem;margin-bottom:0.9rem;'>"
+            "<b>Decision flow</b>: conclusion (what happened) → evidence (numbers/chart) → action (what to do next week)."
+            "</div>",
+            unsafe_allow_html=True,
+        )
 
         # Answer card
         st.markdown("**💬 Answer**")
