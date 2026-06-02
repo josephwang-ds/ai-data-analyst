@@ -19,13 +19,13 @@ Upload a CSV, describe what you want to know, and get back data profiling, visua
 | Frontend | Streamlit |
 | Data | Pandas |
 | Visualization | Plotly |
-| AI | OpenAI GPT-4o-mini (structured JSON output) |
+| AI | DeepSeek `deepseek-chat` (structured JSON output) |
 
 ## Quickstart
 
 ```bash
 pip install -r requirements.txt
-export OPENAI_API_KEY=sk-...
+export DEEPSEEK_API_KEY=your_deepseek_api_key
 streamlit run app.py
 ```
 
